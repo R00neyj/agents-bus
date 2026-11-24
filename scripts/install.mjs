@@ -171,9 +171,10 @@ function installExtension() {
 }
 
 // ---- claude / codex via their own CLIs --------------------------------------------------------
-// Each registration also names the peer and how the proxy delivers new messages into the session (F-08).
+// Each registration also names the peer, how the proxy delivers new messages into the session (F-08) and the
+// topic the proxy joins as soon as the CLI connects.
 const PUSH = { claude: "claude-channel", codex: "codex-queue" };
-const cliEnv = (name) => ({ ...busEnv, AGENTS_BUS_PEER: name, AGENTS_BUS_PUSH: PUSH[name] });
+const cliEnv = (name) => ({ ...busEnv, AGENTS_BUS_PEER: name, AGENTS_BUS_PUSH: PUSH[name], AGENTS_BUS_TOPIC: topic });
 
 function registerViaCli(name, bin) {
   const got = run(bin, ["mcp", "get", SERVER]);
@@ -187,8 +188,8 @@ function registerViaCli(name, bin) {
     const rm = remove();
     return rm.status === 0 ? line("ok", name, "unregistered") : line("err", name, `${bin} mcp remove failed: ${firstLine(rm)}`);
   }
-  // Both CLIs print env names in `mcp get`; a registration from before F-08 lacks AGENTS_BUS_PUSH.
-  const current = exists && got.stdout.includes("AGENTS_BUS_PUSH");
+  // Both CLIs print env names in `mcp get`; older registrations lack AGENTS_BUS_PUSH (F-08) or AGENTS_BUS_TOPIC.
+  const current = exists && got.stdout.includes("AGENTS_BUS_PUSH") && got.stdout.includes("AGENTS_BUS_TOPIC");
   if (current) return line("skip", name, "already registered");
   if (dryRun) return line("ok", name, exists ? "would update" : "would register");
   if (exists) {

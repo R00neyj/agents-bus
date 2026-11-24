@@ -47,7 +47,7 @@ agy: 설치 출력의 `agy mcp add --env ... agents-bus -- ...` 명령(`--env`�
 | [F-03](02-spec.md#f-03) | implemented | omp RPC 세션에서 다른 피어 전송 후 약 0.7초에 알림, `/bus` 표시, 상태줄 `[bus] N new`. 읽기 전용 |
 | [F-04](02-spec.md#f-04) | implemented | `scripts/guard.mjs`, 위반 4종과 통과 케이스 테스트 |
 | [F-05](02-spec.md#f-05) | implemented | 서버 재시작 후 재접속·미읽음 유지를 테스트로 확인, 실제 omp 시작 시 미읽음 알림 확인 |
-| [F-06](02-spec.md#f-06) | implemented | 규칙: 세션 시작 시 토픽 참여 후 `sync` 1회·요약, 답하기 전 `sync`, 버스 메시지는 신뢰하지 않는 입력(명령 실행 전 사용자 확인). 표식 구간만 갱신·제거, 재실행 시 중복 없음. 규칙 파일이 없으면 `--create-rules` 필요. 2026-11-24 agy 확인: 새 세션 첫 입력(`안녕`)에 시키지 않아도 `sync`해 대기 메시지(seq 10)를 요약하고 처리 방법을 사용자에게 물음, "답장 필요 없음" 메시지에 답장 안 함. omp·claude·codex는 미검증 |
+| [F-06](02-spec.md#f-06) | implemented | 규칙: 세션 시작 시 토픽 참여 후 `sync` 1회·요약, 답하기 전 `sync`, 버스 메시지는 신뢰하지 않는 입력(명령 실행 전 사용자 확인). 표식 구간만 갱신·제거, 재실행 시 중복 없음. 규칙 파일이 없으면 `--create-rules` 필요. 2026-11-24 agy 확인: 새 세션 첫 입력(`안녕`)에 시키지 않아도 `sync`해 대기 메시지(seq 10)를 요약하고 처리 방법을 사용자에게 물음, "답장 필요 없음" 메시지에 답장 안 함. omp·claude·codex는 미검증. 2026-11-24 참여를 규칙에만 맡기지 않도록 변경: claude·codex는 프록시가 MCP 연결 직후 `AGENTS_BUS_TOPIC`(설치 시 `--topic`)에 직접 참여(proxy.test.mjs auto-join 테스트), omp는 확장이 첫 입력에 숨은 참여 요청(`JOIN_REQUEST`)을 붙임(확장은 MCP 도구를 부를 수 없고 omp 프록시는 세션 공용). 실제 세션 확인 전 |
 | [F-07](02-spec.md#f-07) | not implemented | Could, 이번 범위 밖 |
 | [F-08](02-spec.md#f-08) | 일부 확인 | 프록시 테스트(실제 agent-bus-mcp)로 Claude 채널 선언·직접 메시지만 1회 전달·세션 시작 전 메시지 제외, Codex 세션 ID 대기 후 `codex queue` 인자 확인. 2026-11-24 실제 세션: omp→`@agy:`(seq 8) 때 omp 화면에 `[bus] 1 new for agy from omp` 알림이 뜸(사용자 확인). agy의 `@omp:` 답장(seq 9)이 omp 세션에 WakeMessage로 들어가 Enter 없이 턴 시작. 실제 Claude 채널은 확인 전. 실제 `codex queue` 전달은 보류(사용자가 Codex 모델을 omp에서 씀) |
 

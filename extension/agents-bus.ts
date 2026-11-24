@@ -193,6 +193,16 @@ export function formatError(err: unknown): string {
 	return `[err] cannot read bus database (${DB_PATH}): ${msg}\ntry: run /bus again in a few seconds`;
 }
 
+/**
+ * Hidden note on a session's first prompt. omp hosts MCP servers in a shared daemon and extensions cannot call
+ * MCP tools, so the model does the join; until a session joins, nothing addressed to it can be found or delivered.
+ */
+export const JOIN_REQUEST = [
+	"[agents-bus] This session has not joined the bus yet. Before anything else, do the agents-bus session start from your rules:",
+	"topic_create for the default topic (mode=\"reuse\"), topic_join, then sync(wait_seconds=0) once.",
+	"Tell the user how many messages are waiting, one line each, then continue with the user's request.",
+].join(" ");
+
 // omp hosts MCP servers in a shared daemon, so the bus proxy cannot tell which session a call comes from.
 // Every bus tool call carries the session name in this argument instead; scripts/bus-proxy.mjs strips it.
 const BUS_TOOL = /^mcp__agents[-_]bus_+/;
@@ -206,12 +216,22 @@ export default function agentsBus(pi: ExtensionAPI) {
 	let sentTitle: string | undefined; // session name the proxy last received; it joins/rejoins under it
 	const peer = () => sessionPeer(CLI, sentTitle);
 
+	let joined = false; // this session called topic_join; until then every prompt carries JOIN_REQUEST
+
 	pi.on("tool_call", async (event, ctx) => {
 		if (!BUS_TOOL.test(event.toolName) || ctx.agent?.kind === "sub") return;
+		if (event.toolName.endsWith("topic_join")) joined = true;
 		const title = pi.getSessionName()?.trim();
 		if (!title) return;
 		sentTitle = title;
 		return { input: { ...(event.input as Record<string, unknown>), [SESSION_ARG]: title } };
+	});
+
+	// No "asked once" flag here: the host may rerun this handler for the same prompt and drop the message an
+	// earlier attempt returned, so the request repeats until the model has actually joined.
+	pi.on("before_agent_start", async (event, ctx) => {
+		if (joined || event.reason === "revive" || ctx.agent?.kind === "sub") return;
+		return { message: { customType: "agents-bus", content: JOIN_REQUEST, display: false } };
 	});
 
 	pi.on("session_start", async (_event, ctx) => {

@@ -129,6 +129,23 @@ test("claude-channel push: messages already waiting when the session starts are 
   await codex.stop();
 });
 
+test("auto-join: with AGENTS_BUS_TOPIC the session joins on connect and gets pushes before any bus tool call", async () => {
+  const { env } = setup();
+  const claude = await startPeer({ ...env, AGENTS_BUS_PUSH: "claude-channel", AGENTS_BUS_PEER: "claude", AGENTS_BUS_TOPIC: "hr-sync", AGENTS_BUS_POLL_MS: "200" });
+  const codex = await startPeer(env);
+  const topic = await codex.call("topic_create", { name: "hr-sync", mode: "reuse" });
+  await codex.call("topic_join", { agent_name: "codex", topic_id: topic.topic_id });
+  await codex.call("sync", { topic_id: topic.topic_id, outbox: [{ content_markdown: "@claude: ping" }], wait_seconds: 0 });
+
+  const pushed = () => claude.notifications.filter((n) => n.method === "notifications/claude/channel").map((n) => n.params.content);
+  assert.ok(await until(() => pushed().includes("@claude: ping")), "pushed without the model ever joining");
+  // The model's own join from the rules reuses the name through the stored token.
+  const own = await claude.call("topic_join", { agent_name: "claude", topic_id: topic.topic_id });
+  assert.equal(own.agent_name, "claude", JSON.stringify(own));
+  await claude.stop();
+  await codex.stop();
+});
+
 test("no push mode (omp's registration and the manual one): no channel capability, nothing pushed", async () => {
   const { env } = setup();
   const codex = await startPeer(env);

@@ -52,7 +52,7 @@ node scripts/install.mjs             # omp, Claude Code, Codex 일괄 설정
 #### 설치 시 수행되는 작업
 
 1. `~/.agent_bus/bus-proxy.mjs`를 복사하고 `~/.agent_bus/config.json`에 `uvx`·`codex` 경로를 기록합니다.
-2. 각 CLI에 MCP 서버 `agents-bus`를 등록합니다 (`omp`는 `~/.omp/agent/mcp.json`, `claude`·`codex`는 각자의 `mcp add` 사용). `claude`·`codex`는 피어 이름(`AGENTS_BUS_PEER`)과 전달 방식(`AGENTS_BUS_PUSH`)을 함께 설정하며, 다른 MCP 서버는 건드리지 않습니다.
+2. 각 CLI에 MCP 서버 `agents-bus`를 등록합니다 (`omp`는 `~/.omp/agent/mcp.json`, `claude`·`codex`는 각자의 `mcp add` 사용). `claude`·`codex`는 피어 이름(`AGENTS_BUS_PEER`), 전달 방식(`AGENTS_BUS_PUSH`), 연결 즉시 자동 참여할 토픽(`AGENTS_BUS_TOPIC`)을 함께 설정하며, 다른 MCP 서버는 건드리지 않습니다.
 3. omp 확장을 `~/.omp/agent/extensions/agents-bus.ts`에 복사합니다.
 4. 세션이 자기 ID와 이름을 프록시에 알려 주도록 훅을 추가합니다. Codex는 `~/.codex/hooks.json`에 2개(`SessionStart`, `UserPromptSubmit`), Claude Code는 `~/.claude/settings.json`에 1개(`UserPromptSubmit`)입니다. 기존 훅과 설정은 유지됩니다.
 5. `~/.omp/agent/RULES.md`, `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`에 규칙 블록을 넣습니다. `<!-- agents-bus:begin -->`~`end` 사이만 갱신하므로 여러 번 실행해도 중복되지 않습니다.
@@ -112,7 +112,7 @@ node scripts/install.mjs             # omp, Claude Code, Codex 일괄 설정
 
 ### 메시지 받기와 읽음 처리
 
-- **세션 시작 시**: 규칙 블록 덕분에 각 에이전트가 `hr-sync`에 자동 참여하고 안 읽은 메시지를 한 줄씩 요약합니다. (건너뛰면 `"버스 확인해"`라고 말하면 됩니다.)
+- **세션 시작 시**: Claude Code·Codex는 CLI가 MCP에 연결되는 즉시 프록시가 `hr-sync`에 자동 참여하므로, 모델이 아무 도구도 부르기 전부터 `@이름:` 메시지를 자동 수신합니다. omp는 확장이 MCP 도구를 직접 부를 수 없어서, 첫 입력 때 확장이 참여 요청을 숨은 메시지로 붙이고 모델이 참여·`sync`를 수행합니다(첫 입력 전에는 수신 안 됨). 참여 뒤 모델이 안 읽은 메시지를 한 줄씩 요약합니다. (건너뛰면 `"버스 확인해"`라고 말하면 됩니다.)
 - **지정 메시지 (`@이름:`)**: 대상 세션이 열려 있으면 자동으로 들어가 모델이 바로 처리합니다 (`omp`, `claude`, `codex`).
 - **전체 공지 / 꺼진 세션**: DB에 보관되어 있다가 다음 `sync` 호출이나 세션 시작 시 전달됩니다.
 - **Antigravity (`agy`)**: 자동 수신 대신 `@agy:` 메시지가 오면 `omp` 화면에 `[bus] 1 new for agy from codex` 알림과 상태줄 `agy: N`이 뜹니다. `agy` 창에서 `"버스 확인해"`라고 시키면 읽습니다.

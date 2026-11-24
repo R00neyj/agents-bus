@@ -85,6 +85,11 @@ const DatabaseSync = await import("node:sqlite").then((m) => m.DatabaseSync).cat
 // ---- push and session state ----------------------------------------------------------------------
 /** CLI name pinned by the installer (`omp`, `claude`, `codex`); this session's peer name is derived from it. */
 const cliPeer = (process.env.AGENTS_BUS_PEER || "").trim();
+/**
+ * Topic this session joins as soon as the CLI connects (the installer sets it for claude and codex, one proxy per
+ * session). Unset (omp's shared proxy, manual registrations): the session joins when the model calls topic_join.
+ */
+const autoTopic = (process.env.AGENTS_BUS_TOPIC || "").trim();
 /** Peer to deliver for: the name this session last joined with, else the pinned CLI name. */
 let peer = cliPeer;
 let initializeId;
@@ -102,16 +107,18 @@ const pendingToolLists = new Set();
 const joinedTopics = new Map();
 /** Names whose join the server refused; not retried, so a refused rename does not loop. */
 const refusedNames = new Set();
-// Requests the proxy sends itself (rejoin, cursor carry-over); their responses never reach the client.
+// Requests the proxy sends itself (auto-join, rejoin, cursor carry-over); their responses never reach the client.
 const INTERNAL = "agents-bus-proxy-";
 let internalSeq = 0;
+/** Internal request id -> handler for its response (auto-join chains topic_create into topic_join). */
+const internalReplies = new Map();
 const sendToServer = (name, args) => {
   const id = `${INTERNAL}${++internalSeq}`;
   child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } })}\n`);
   return id;
 };
-// While a rename runs (rejoin, then cursor carry-over), client requests wait, so no sync sees the new name
-// before its read position is set.
+// While an auto-join or a rename runs (join, then cursor carry-over), client requests wait, so no sync sees the
+// new name before its read position is set and the model's own join reuses the stored token instead of racing it.
 const renameSteps = new Set();
 const heldRequests = [];
 function renameStepDone(id) {
@@ -134,6 +141,8 @@ function rewriteRequest(line) {
   if (msg.method === "notifications/initialized") {
     if (pushMode) startPush();
     if (cliPeer) setInterval(followRename, pollMs).unref();
+    // After this notification has gone to the server: the wiring writes it once this function returns.
+    if (cliPeer && autoTopic) setImmediate(autoJoin);
   }
   if (pushMode && msg.method === "tools/list" && msg.id !== undefined) pendingToolLists.add(msg.id);
   if (pushMode && msg.method === "tools/call" && msg.params?.name === REGISTER_TOOL) {
@@ -171,6 +180,25 @@ function rewriteRequest(line) {
     ((topicId && readToken(tokenFile(agent, "id", topicId))) || (topicName && readToken(tokenFile(agent, "name", topicName))));
   if (token) args = { ...args, reclaim_token: token };
   return forward();
+}
+
+/**
+ * Joins the default topic when the CLI connects, before the model calls any bus tool, so messages addressed to
+ * this session are found and pushed from the start. Joins under the bare CLI name unless a title is already
+ * known; followRename moves it to `<cli>.<session name>` once the hook reports one.
+ */
+function autoJoin() {
+  const createId = sendToServer("topic_create", { name: autoTopic, mode: "reuse" });
+  renameSteps.add(createId);
+  internalReplies.set(createId, (msg) => {
+    const topicId = msg.result?.structuredContent?.topic_id;
+    if (typeof topicId !== "string") return;
+    const agent = sessionPeer(cliPeer, currentTitle());
+    const token = readToken(tokenFile(agent, "id", topicId)) || readToken(tokenFile(agent, "name", autoTopic));
+    const joinId = sendToServer("topic_join", { agent_name: agent, topic_id: topicId, ...(token && { reclaim_token: token }) });
+    renameSteps.add(joinId);
+    pendingJoins.set(joinId, { agent, topicId, topicName: autoTopic });
+  });
 }
 
 /** Session title to append to the CLI name: from the Claude hook or the omp extension, else Codex's thread name. */
@@ -248,6 +276,8 @@ function rewriteResponse(line) {
   }
   if (pendingJoins.has(msg.id)) onJoined(msg);
   if (typeof msg.id !== "string" || !msg.id.startsWith(INTERNAL)) return line;
+  internalReplies.get(msg.id)?.(msg);
+  internalReplies.delete(msg.id);
   renameStepDone(msg.id);
   return null;
 }
