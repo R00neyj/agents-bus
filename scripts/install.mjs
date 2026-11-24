@@ -25,7 +25,7 @@ if (flag("help")) {
   --home          use another home directory (tests)
   --create-rules  create a missing rules file instead of skipping it
   --dry-run       print what would change, change nothing
-  --uninstall     remove registrations, Codex hooks, rule blocks and the extension`);
+  --uninstall     remove registrations, session hooks, rule blocks and the extension`);
   process.exit(0);
 }
 
@@ -118,8 +118,9 @@ function installProxy() {
 // directory or environment the CLI starts MCP servers with.
 const busEnv = { AGENTS_BUS_HOME: busHome, AGENT_BUS_DB: join(busHome, "agent_bus.sqlite") };
 
+// AGENTS_BUS_PEER lets the proxy name the session `omp.<session name>` (no push: the extension wakes omp).
 function ompMcpEntry() {
-  return { type: "stdio", command: process.execPath, args: [proxyPath], env: busEnv };
+  return { type: "stdio", command: process.execPath, args: [proxyPath], env: { ...busEnv, AGENTS_BUS_PEER: "omp" } };
 }
 
 function readJson(path) {
@@ -142,13 +143,14 @@ function registerOmp() {
     if (!dryRun) writeFileSync(ompMcp, `${JSON.stringify(cfg, null, 2)}\n`);
     return line("ok", "omp", `unregistered from ${ompMcp}`);
   }
-  if (SERVER in cfg.mcpServers) return line("skip", "omp", "already registered");
+  const had = SERVER in cfg.mcpServers;
+  if (had && JSON.stringify(cfg.mcpServers[SERVER]) === JSON.stringify(ompMcpEntry())) return line("skip", "omp", "already registered");
   cfg.mcpServers[SERVER] = ompMcpEntry();
   if (!dryRun) {
     mkdirSync(dirname(ompMcp), { recursive: true });
     writeFileSync(ompMcp, `${JSON.stringify(cfg, null, 2)}\n`);
   }
-  line("ok", "omp", `registered in ${ompMcp}${kept.length ? `  (${kept.join(", ")} kept)` : ""}`);
+  line("ok", "omp", `${had ? "updated" : "registered"} in ${ompMcp}${kept.length ? `  (${kept.join(", ")} kept)` : ""}`);
 }
 
 function installExtension() {
@@ -203,44 +205,51 @@ function registerViaCli(name, bin) {
   line("err", name, `${bin} mcp add failed: ${firstLine(add)}`);
 }
 
-// ---- codex hooks -----------------------------------------------------------------------------
-// `codex queue` needs the session id. These hooks hand it to this session's proxy through an MCP tool call.
-const codexHooks = join(home, ".codex", "hooks.json");
-const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit"];
+// ---- session hooks ---------------------------------------------------------------------------
+// A CLI hook tells this session's proxy who the session is, through an MCP tool call. Codex: the session id,
+// which `codex queue` needs and which names the thread whose name the proxy reads. Claude: the custom title
+// set with /rename (`session_title` exists on UserPromptSubmit, not on PreToolUse).
+const HOOKS = {
+  codex: {
+    file: join(home, ".codex", "hooks.json"),
+    events: ["SessionStart", "UserPromptSubmit"],
+    input: { session_id: "${session_id}" },
+    note: "  (approve them in codex: /hooks)",
+  },
+  claude: {
+    file: join(home, ".claude", "settings.json"),
+    events: ["UserPromptSubmit"],
+    input: { session_id: "${session_id}", session_title: "${session_title}" },
+    note: "",
+  },
+};
 const ownHook = (h) => h?.type === "mcp_tool" && h.server === SERVER;
-const hookGroup = () => ({
-  hooks: [{ type: "mcp_tool", server: SERVER, tool: "bus_register_session", input: { session_id: "${session_id}" }, timeout: 10 }],
-});
 
-function installCodexHooks() {
+function installHooks(cli) {
+  const { file, events, input, note } = HOOKS[cli];
   let cfg;
   try {
-    cfg = readJson(codexHooks);
+    cfg = readJson(file);
   } catch (err) {
-    return line("err", "hooks", `cannot parse ${codexHooks}: ${err.message}. Nothing was changed.`);
+    return line("err", "hooks", `cannot parse ${file}: ${err.message}. Nothing was changed.`);
   }
+  const before = JSON.stringify(cfg);
   cfg.hooks ??= {};
-  let changed = false;
-  for (const ev of HOOK_EVENTS) {
-    const groups = cfg.hooks[ev] ?? [];
-    const has = groups.some((g) => g.hooks?.some(ownHook));
-    if (uninstall) {
-      if (!has) continue;
-      const kept = groups.map((g) => ({ ...g, hooks: (g.hooks ?? []).filter((h) => !ownHook(h)) })).filter((g) => g.hooks.length);
-      if (kept.length) cfg.hooks[ev] = kept;
-      else delete cfg.hooks[ev];
-      changed = true;
-    } else if (!has) {
-      cfg.hooks[ev] = [...groups, hookGroup()];
-      changed = true;
-    }
+  const hook = { type: "mcp_tool", server: SERVER, tool: "bus_register_session", input, timeout: 10 };
+  for (const ev of events) {
+    // Drop ours (it may be from an older install), keep the user's, then add the current one back.
+    const kept = (cfg.hooks[ev] ?? []).map((g) => ({ ...g, hooks: (g.hooks ?? []).filter((h) => !ownHook(h)) })).filter((g) => g.hooks.length);
+    const groups = uninstall ? kept : [...kept, { hooks: [hook] }];
+    if (groups.length) cfg.hooks[ev] = groups;
+    else delete cfg.hooks[ev];
   }
-  if (!changed) return line("skip", "hooks", uninstall ? "no agents-bus hooks" : "up to date");
+  if (Object.keys(cfg.hooks).length === 0) delete cfg.hooks;
+  if (JSON.stringify(cfg) === before) return line("skip", "hooks", uninstall ? "no agents-bus hooks" : "up to date");
   if (!dryRun) {
-    mkdirSync(dirname(codexHooks), { recursive: true });
-    writeFileSync(codexHooks, `${JSON.stringify(cfg, null, 2)}\n`);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, `${JSON.stringify(cfg, null, 2)}\n`);
   }
-  line("ok", "hooks", uninstall ? `removed from ${codexHooks}` : `added to ${codexHooks}  (approve them in codex: /hooks)`);
+  line("ok", "hooks", uninstall ? `removed from ${file}` : `added to ${file}${note}`);
 }
 
 // ---- rules -----------------------------------------------------------------------------------
@@ -266,10 +275,12 @@ for (const t of targets) {
   if (t === "omp") {
     registerOmp();
     installExtension();
-  } else if (t === "claude") registerViaCli("claude", "claude");
-  else if (t === "codex") {
+  } else if (t === "claude") {
+    registerViaCli("claude", "claude");
+    installHooks("claude");
+  } else if (t === "codex") {
     registerViaCli("codex", "codex");
-    installCodexHooks();
+    installHooks("codex");
   } else line("err", t, "unknown target (use omp, claude, codex)");
   if (t in rulesFiles) installRules(t);
 }

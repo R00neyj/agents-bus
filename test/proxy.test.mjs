@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { queryUnread } from "../extension/agents-bus.ts";
+import { queryUnread, queryWaiting } from "../extension/agents-bus.ts";
 import { startPeer, tempDir } from "./helpers.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -216,4 +216,148 @@ test("codex-queue push: waits for the hook's session id, then runs codex queue f
   assert.match(text, new RegExp(`sync\\(topic_id="${topic.topic_id}"`));
   await codex.stop();
   await omp.stop();
+});
+
+test("claude session name: the hook's title turns the join into claude.<title>, only that session wakes", async () => {
+  const { env } = setup();
+  const codex = await startPeer(env);
+  const topic = await codex.call("topic_create", { name: "hr-sync" });
+  await codex.call("topic_join", { agent_name: "codex", topic_id: topic.topic_id });
+  const send = (text) => codex.call("sync", { topic_id: topic.topic_id, outbox: [{ content_markdown: text }], wait_seconds: 0 });
+  const pushEnv = { ...env, AGENTS_BUS_PUSH: "claude-channel", AGENTS_BUS_PEER: "claude", AGENTS_BUS_POLL_MS: "200" };
+  const review = await startPeer(pushEnv);
+  const docs = await startPeer(pushEnv);
+
+  // Claude substitutes a missing field as typed; the proxy treats `${session_title}` as no title.
+  await review.request("tools/call", { name: "bus_register_session", arguments: { session_id: "s1", session_title: "코드 리뷰" } });
+  await docs.request("tools/call", { name: "bus_register_session", arguments: { session_id: "s2", session_title: "${session_title}" } });
+  assert.equal((await review.call("topic_join", { agent_name: "claude", topic_id: topic.topic_id })).agent_name, "claude.코드-리뷰");
+  assert.equal((await docs.call("topic_join", { agent_name: "claude", topic_id: topic.topic_id })).agent_name, "claude");
+  const pushed = (p) => p.notifications.filter((n) => n.method === "notifications/claude/channel").map((n) => n.params.content);
+
+  await send("@claude.코드-리뷰: review PR 12");
+  await send("@claude: anyone");
+  assert.ok(await until(() => pushed(review).length + pushed(docs).length >= 2));
+  await sleep(800);
+  assert.deepEqual(pushed(docs).filter((b) => b.includes("PR 12")), [], "the other claude session does not get it");
+  assert.ok(pushed(review).includes("@claude.코드-리뷰: review PR 12"));
+  assert.equal([...pushed(review), ...pushed(docs)].filter((b) => b === "@claude: anyone").length, 1, "@claude: wakes one session");
+
+  // Separate cursors: the review session reading does not mark the messages read for the docs session.
+  await review.call("sync", { topic_id: topic.topic_id, wait_seconds: 0 });
+  assert.deepEqual((await queryUnread(env.AGENT_BUS_DB, "claude.코드-리뷰")).map((m) => m.body), []);
+  assert.deepEqual((await queryUnread(env.AGENT_BUS_DB, "claude")).map((m) => m.body), [], "@claude: was handled by the review session");
+
+  // Restart: the session name is reused through the stored reclaim token (non-ASCII file name).
+  await review.stop();
+  const again = await startPeer(pushEnv);
+  await again.request("tools/call", { name: "bus_register_session", arguments: { session_id: "s1", session_title: "코드 리뷰" } });
+  assert.equal((await again.call("topic_join", { agent_name: "claude", topic_id: topic.topic_id })).agent_name, "claude.코드-리뷰");
+  await again.stop();
+  await docs.stop();
+  await codex.stop();
+});
+
+test("codex session name: the proxy reads the thread name of the hook's session id", async () => {
+  const { dir, env } = setup();
+  writeFileSync(
+    join(dir, "session_index.jsonl"),
+    `${JSON.stringify({ id: "thr_1", thread_name: "old name" })}\n${JSON.stringify({ id: "thr_2", thread_name: "other" })}\n${JSON.stringify({ id: "thr_1", thread_name: "API 정리" })}\n`,
+  );
+  writeFileSync(join(dir, "config.json"), JSON.stringify({ codex: [process.execPath, "-e", ""] }));
+  const codex = await startPeer({ ...env, CODEX_HOME: dir, AGENTS_BUS_PUSH: "codex-queue", AGENTS_BUS_PEER: "codex" });
+  const topic = await codex.call("topic_create", { name: "hr-sync" });
+  await codex.request("tools/call", { name: "bus_register_session", arguments: { session_id: "thr_1" } });
+  assert.equal((await codex.call("topic_join", { agent_name: "codex", topic_id: topic.topic_id })).agent_name, "codex.API-정리");
+  await codex.stop();
+});
+
+test("omp notifier: messages for named sessions of the other CLI wait until that session reads them", async () => {
+  const { env, db } = setup();
+  const CLI = "ag" + "y";
+  const bus = await startPeer(env);
+  const topic = await bus.call("topic_create", { name: "hr-sync" });
+  const old = await startPeer(env);
+  const current = await startPeer(env);
+  await old.call("topic_join", { agent_name: `${CLI}.old`, topic_id: topic.topic_id });
+  await current.call("topic_join", { agent_name: `${CLI}.new`, topic_id: topic.topic_id });
+  await bus.call("topic_join", { agent_name: "codex", topic_id: topic.topic_id });
+  const send = (text) => bus.call("sync", { topic_id: topic.topic_id, outbox: [{ content_markdown: text }], wait_seconds: 0 });
+  await send(`@${CLI}.new: for the new session`);
+  await send(`@${CLI}: for any session`);
+  await send("@all: not a direct message");
+  const waiting = () => queryWaiting(db, CLI);
+  const first = await waiting();
+  assert.deepEqual(first.map((m) => m.body).sort(), [`@${CLI}.new: for the new session`, `@${CLI}: for any session`], "once each, @all: excluded");
+  assert.equal(first.find((m) => m.body.includes("new session")).peer, `${CLI}.new`);
+
+  await current.call("sync", { topic_id: topic.topic_id, wait_seconds: 0 });
+  assert.deepEqual(await waiting(), [], "the old session never syncs again, yet nothing stays waiting");
+  await old.stop();
+  await current.stop();
+  await bus.stop();
+});
+
+test("rename after join: the proxy rejoins under the new name and keeps the read position", async () => {
+  const { env } = setup();
+  const codex = await startPeer(env);
+  const topic = await codex.call("topic_create", { name: "hr-sync" });
+  await codex.call("topic_join", { agent_name: "codex", topic_id: topic.topic_id });
+  const send = (text) => codex.call("sync", { topic_id: topic.topic_id, outbox: [{ content_markdown: text }], wait_seconds: 0 });
+  const claude = await startPeer({ ...env, AGENTS_BUS_PUSH: "claude-channel", AGENTS_BUS_PEER: "claude", AGENTS_BUS_POLL_MS: "200" });
+  const sync = () => claude.call("sync", { topic_id: topic.topic_id, wait_seconds: 0 });
+
+  // First turn: no title yet, so the session joins and reads as plain `claude`.
+  await claude.request("tools/call", { name: "bus_register_session", arguments: { session_id: "s1", session_title: "${session_title}" } });
+  assert.equal((await claude.call("topic_join", { agent_name: "claude", topic_id: topic.topic_id })).agent_name, "claude");
+  await send("@claude: already read before the rename");
+  assert.equal((await sync()).received.length, 1);
+
+  // /rename, then the next prompt's hook reports the title.
+  await claude.request("tools/call", { name: "bus_register_session", arguments: { session_id: "s1", session_title: "새 이름" } });
+  let after;
+  assert.ok(await until(() => after?.agent_name === "claude.새-이름" || (sync().then((r) => (after = r)), false)), JSON.stringify(after));
+  assert.deepEqual(after.received, [], "the new name starts where the session left off, not at the topic's first message");
+  await send("@claude.새-이름: addressed by the new name");
+  const pushed = () => claude.notifications.filter((n) => n.method === "notifications/claude/channel").map((n) => n.params.content);
+  assert.ok(await until(() => pushed().includes("@claude.새-이름: addressed by the new name")), JSON.stringify(pushed()));
+  await claude.stop();
+  await codex.stop();
+});
+
+test("omp: the session name rides along on bus tool calls; a rename is applied before the next call runs", async () => {
+  const { env } = setup();
+  const omp = await startPeer({ ...env, AGENTS_BUS_PEER: "omp" });
+  const call = (name, args, title) => omp.call(name, { ...args, agents_bus_session: title });
+  const topic = await omp.call("topic_create", { name: "hr-sync" });
+  assert.equal((await call("topic_join", { agent_name: "omp", topic_id: topic.topic_id }, "첫 이름")).agent_name, "omp.첫-이름");
+  assert.equal(omp.init.capabilities.experimental?.["claude/channel"], undefined, "omp gets no push from the proxy");
+
+  const renamed = await call("sync", { topic_id: topic.topic_id, wait_seconds: 0 }, "둘째");
+  assert.equal(renamed.agent_name, "omp.둘째", JSON.stringify(renamed));
+  assert.equal((await omp.call("sync", { topic_id: topic.topic_id, wait_seconds: 0 })).agent_name, "omp.둘째", "a call without the argument keeps the name");
+  await omp.stop();
+});
+
+test("two session names of equal length in another script keep separate reclaim tokens", async () => {
+  const { env } = setup();
+  const pushEnv = { ...env, AGENTS_BUS_PUSH: "claude-channel", AGENTS_BUS_PEER: "claude" };
+  const titles = ["리팩터링", "내일계속"];
+  const open = async (title) => {
+    const p = await startPeer(pushEnv);
+    await p.request("tools/call", { name: "bus_register_session", arguments: { session_id: title, session_title: title } });
+    return p;
+  };
+  const first = await open(titles[0]);
+  const topic = await first.call("topic_create", { name: "hr-sync" });
+  const sessions = [first, await open(titles[1])];
+  for (const [i, p] of sessions.entries()) assert.equal((await p.call("topic_join", { agent_name: "claude", topic_id: topic.topic_id })).agent_name, `claude.${titles[i]}`);
+  for (const p of sessions) await p.stop();
+
+  for (const title of titles) {
+    const p = await open(title);
+    const joined = await p.call("topic_join", { agent_name: "claude", topic_id: topic.topic_id });
+    assert.equal(joined.agent_name, `claude.${title}`, JSON.stringify(joined));
+    await p.stop();
+  }
 });

@@ -69,10 +69,10 @@ ANSI 16색 이름만 쓴다. 터미널 테마가 실제 값을 정한다. 대비
 | Component | Purpose | Variants | States | Tokens | Screens |
 | --- | --- | --- | --- | --- | --- |
 | StatusLine | 설치 결과 한 줄 `[ok] claude  registered` | ok / skip / err | - | color.success, color.warn, color.danger, text.body | install |
-| BusNotice | omp 새 메시지 알림 한 줄 `[bus] 2 new from codex, agy` | 1건 / 여러 건 / 다른 피어 앞 `[bus] 1 new for agy from codex  try: ask agy to check the bus` | DB 없음(표시 안 함) | color.primary, text.title | notify |
+| BusNotice | omp 새 메시지 알림 한 줄 `[bus] 2 new from codex, agy` | 1건 / 여러 건 / 다른 피어 앞 `[bus] 1 new for agy.X from codex  try: ask agy.X to check the bus` / 상태줄 `[bus] omp.리팩터링  1 new  agy: 2` (이름 있는 세션만 자기 주소 표시) | DB 없음(표시 안 함) | color.primary, text.title | notify |
 | MessageBlock | 메시지 하나. 헤더 `from -> to  topic  time` + 들여쓴 본문 | 일반 / 답장 | 빈 인박스는 `no new messages` | text.title, text.caption, text.body, space.2 | inbox |
 | Hint | 다음 행동 한 줄 `try: /bus` | - | - | text.caption | install, notify, inbox |
-| WakeMessage | 자기 앞 메시지를 세션에 전달. 헤더 `[bus] codex -> omp  hr-sync  13:22` + 들여쓴 본문 + 빈 줄 + 답하는 방법 두 줄 | omp 세션 메시지 / Codex queue 텍스트(시각 없음) | 긴 본문은 잘라 `(truncated; sync returns the full text)` | color.primary, text.title, text.body, space.1, space.2 | wake |
+| WakeMessage | 자기 앞 메시지를 세션에 전달. 헤더 `[bus] codex -> omp.리팩터링  hr-sync  13:22`(받는 쪽은 세션 주소) + 들여쓴 본문 + 빈 줄 + 답하는 방법 두 줄 | omp 세션 메시지 / Codex queue 텍스트(시각 없음) | 긴 본문은 잘라 `(truncated; sync returns the full text)` | color.primary, text.title, text.body, space.1, space.2 | wake |
 
 ## Patterns
 
@@ -103,3 +103,4 @@ AI-slop defaults this product is most likely to fall into (from the anti-slop ch
 | 2026-11-19 | 토큰을 ANSI 이름·ASCII 기호로 정의 | UI가 터미널 텍스트뿐 |
 | 2026-11-24 | WakeMessage 추가, "알림에 본문 없음" 원칙에 F-08 예외 | 사용자가 Claude channels처럼 열린 세션이 메시지를 바로 받기를 요청 |
 | 2026-11-24 | BusNotice에 "다른 피어 앞" 변형, 상태줄 `[bus] 1 new  agy: 2` | agy는 자동 전달이 안 되므로(약관) omp 화면에서 사용자에게 알림 |
+| 2026-11-24 | 피어 이름에 세션 이름(`omp.리팩터링`), 상태줄에 자기 주소, 알림·헤더에 세션 주소 | 같은 CLI를 여러 개 띄우면 서로 메시지가 섞여(커서 공유, 엉뚱한 세션이 깨어남) 세션을 지정해야 함 |

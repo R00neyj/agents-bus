@@ -133,3 +133,23 @@ test("codex hooks: added next to the user's own hooks, not duplicated on rerun, 
   cfg = JSON.parse(readFileSync(hooksPath, "utf8"));
   assert.deepEqual(cfg.hooks, { SessionStart: [{ hooks: [mine] }] });
 });
+
+test("claude hook: reports the session title on UserPromptSubmit; settings and the user's hooks are kept", () => {
+  const home = fakeHome();
+  const settingsPath = join(home, ".claude", "settings.json");
+  const mine = { type: "command", command: "echo mine" };
+  writeFileSync(settingsPath, JSON.stringify({ model: "opus", hooks: { UserPromptSubmit: [{ hooks: [mine] }] } }));
+
+  install(["--only", "claude", "--home", home]);
+  install(["--only", "claude", "--home", home]);
+  let cfg = JSON.parse(readFileSync(settingsPath, "utf8"));
+  assert.equal(cfg.model, "opus");
+  assert.deepEqual(cfg.hooks.UserPromptSubmit, [
+    { hooks: [mine] },
+    { hooks: [{ type: "mcp_tool", server: "agents-bus", tool: "bus_register_session", input: { session_id: "${session_id}", session_title: "${session_title}" }, timeout: 10 }] },
+  ]);
+
+  install(["--only", "claude", "--home", home, "--uninstall"]);
+  cfg = JSON.parse(readFileSync(settingsPath, "utf8"));
+  assert.deepEqual(cfg, { model: "opus", hooks: { UserPromptSubmit: [{ hooks: [mine] }] } });
+});

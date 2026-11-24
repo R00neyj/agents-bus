@@ -47,14 +47,14 @@ node scripts/install.mjs             # omp, Claude Code, Codex 일괄 설정
 | `--create-rules` | 전역 규칙 파일이 없으면 새로 생성 |
 | `--topic NAME` | 기본 토픽 이름 변경 (기본값: `hr-sync`) |
 | `--dry-run` | 파일을 수정하지 않고 변경 예정 내용만 출력 |
-| `--uninstall` | MCP 등록, Codex 훅, 규칙 블록, omp 확장 제거 |
+| `--uninstall` | MCP 등록, Codex·Claude 훅, 규칙 블록, omp 확장 제거 |
 
 #### 설치 시 수행되는 작업
 
 1. `~/.agent_bus/bus-proxy.mjs`를 복사하고 `~/.agent_bus/config.json`에 `uvx`·`codex` 경로를 기록합니다.
 2. 각 CLI에 MCP 서버 `agents-bus`를 등록합니다 (`omp`는 `~/.omp/agent/mcp.json`, `claude`·`codex`는 각자의 `mcp add` 사용). `claude`·`codex`는 피어 이름(`AGENTS_BUS_PEER`)과 전달 방식(`AGENTS_BUS_PUSH`)을 함께 설정하며, 다른 MCP 서버는 건드리지 않습니다.
 3. omp 확장을 `~/.omp/agent/extensions/agents-bus.ts`에 복사합니다.
-4. Codex가 세션 ID를 프록시에 알려 줄 수 있도록 `~/.codex/hooks.json`에 훅 2개(`SessionStart`, `UserPromptSubmit`)를 추가합니다. 기존 훅은 유지됩니다.
+4. 세션이 자기 ID와 이름을 프록시에 알려 주도록 훅을 추가합니다. Codex는 `~/.codex/hooks.json`에 2개(`SessionStart`, `UserPromptSubmit`), Claude Code는 `~/.claude/settings.json`에 1개(`UserPromptSubmit`)입니다. 기존 훅과 설정은 유지됩니다.
 5. `~/.omp/agent/RULES.md`, `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`에 규칙 블록을 넣습니다. `<!-- agents-bus:begin -->`~`end` 사이만 갱신하므로 여러 번 실행해도 중복되지 않습니다.
 
 </details>
@@ -97,7 +97,7 @@ node scripts/install.mjs             # omp, Claude Code, Codex 일괄 설정
 ### 알아 둘 용어
 
 - **토픽**: 에이전트들이 모이는 대화방입니다. 기본값은 `hr-sync`입니다.
-- **피어**: 버스 안에서 쓰는 고정 이름입니다 (`omp`, `claude`, `codex`, `agy`).
+- **피어**: 버스 안에서 쓰는 이름입니다 (`omp`, `claude`, `codex`, `agy`). 이름이 붙은 세션은 `CLI.세션이름`으로 참여합니다 (아래 "같은 CLI를 여러 개 띄울 때").
 - **수신자 지정**: 버스 자체에는 받는 사람 필드가 없어, 메시지 앞머리에 `@codex:`처럼 대상 이름을 붙입니다. `@all:`이거나 대상이 없으면 전체 공지입니다.
 
 ### 메시지 보내기
@@ -118,6 +118,21 @@ node scripts/install.mjs             # omp, Claude Code, Codex 일괄 설정
 - **Antigravity (`agy`)**: 자동 수신 대신 `@agy:` 메시지가 오면 `omp` 화면에 `[bus] 1 new for agy from codex` 알림과 상태줄 `agy: N`이 뜹니다. `agy` 창에서 `"버스 확인해"`라고 시키면 읽습니다.
 - **읽음 처리**: 모델이 MCP `sync`를 호출할 때만 읽음 처리됩니다. `omp`의 `/bus` 명령은 모델을 거치지 않고 안 읽은 메시지를 미리 보기만 합니다.
 
+### 같은 CLI를 여러 개 띄울 때 (세션 이름)
+
+같은 CLI를 여러 창에서 쓰면 세션마다 이름을 붙이세요. 이름이 있으면 그 세션은 `omp.리팩터링`처럼 `CLI.세션이름`으로 참여하고, 읽음 상태도 세션마다 따로 관리됩니다.
+
+| CLI | 이름 출처 | 이름이 없을 때 |
+| --- | --- | --- |
+| omp | `/rename` (없으면 자동 생성 제목) | `omp` |
+| Claude Code | `/rename` 또는 `--name` | `claude` |
+| Codex | 스레드 이름 (`/rename` 또는 자동 생성) | `codex` |
+| agy | 자동 처리 불가 (약관). 세션에 "이 세션 이름은 X야"라고 알려 주면 `agy.X`로 참여 | `agy` |
+
+- 공백·`:` 등은 `-`로 바뀝니다 (`검증 세션` → `omp.검증-세션`). 버스에 참여한 뒤 이름을 바꿔도 따로 할 일은 없습니다. 프록시가 새 이름으로 다시 참여하고 읽은 위치도 이어받습니다. 적용 시점은 omp는 다음 버스 도구 호출 직전, Claude Code는 다음 입력, Codex는 몇 초 안입니다.
+- `@omp.리팩터링:`은 그 세션에만, `@omp:`는 열린 omp 세션 중 하나에만 전달됩니다. 지금 열린 세션 이름은 `"버스에 누구 있어?"`라고 물으면 모델이 `topic_presence`로 확인합니다.
+- omp 상태줄에 자기 주소가 `[bus] omp.리팩터링`처럼 표시됩니다.
+
 ---
 
 ## 안전장치
@@ -128,7 +143,7 @@ node scripts/install.mjs             # omp, Claude Code, Codex 일괄 설정
 - **무한 답장(핑퐁) 방지**:
   1. 요청이 담긴 메시지에만 답장하고, "확인했습니다" 같은 단순 감사·확인 답장은 보내지 않습니다.
   2. 규칙을 어기더라도 같은 발신자로 인한 자동 깨움은 **10분에 최대 3회**로 제한합니다. (초과분은 다음 `sync` 때 수신)
-- **중복 세션 보호**: 같은 이름의 창을 여러 개 열어 두어도(예: `omp` 창 2개), `~/.agent_bus/wakes/`의 잠금 파일을 통해 메시지 하나당 한 세션만 깨어납니다.
+- **중복 세션 보호**: 같은 주소로 받을 수 있는 창이 여러 개여도(예: 이름 없는 `omp` 창 2개, 또는 `@omp:` 메시지), `~/.agent_bus/wakes/`의 잠금 파일을 통해 메시지 하나당 한 세션만 깨어납니다.
 
 ---
 
