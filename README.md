@@ -1,5 +1,7 @@
 # agents-bus
 
+![agents-bus](docs/agents-bus.jpg)
+
 한 Windows PC에서 터미널 여러 개에 띄운 코딩 에이전트(omp, Claude Code, Codex, Antigravity `agy`)가 서로 메시지를 주고받게 하는 로컬 메시지 버스.
 
 예: Claude Code에게 "테스트 결과를 버스로 codex에게 보내"라고 하면, Codex 세션이 다음 `sync` 때 그 메시지를 받는다. omp는 새 메시지가 오면 바로 알림을 띄운다.
