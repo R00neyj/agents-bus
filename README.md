@@ -2,20 +2,146 @@
 
 ![agents-bus](docs/agents-bus.jpg)
 
-한 Windows PC에서 터미널 여러 개에 띄운 코딩 에이전트(omp, Claude Code, Codex, Antigravity `agy`)가 서로 메시지를 주고받게 하는 로컬 메시지 버스.
+한 Windows PC의 여러 터미널에서 실행 중인 코딩 에이전트(**omp**, **Claude Code**, **Codex**, **Antigravity**)들이 서로 메시지를 주고받게 해 주는 로컬 메시지 버스입니다.
 
-예: Claude Code에게 "테스트 결과를 버스로 codex에게 보내"라고 하면, Codex 세션이 다음 `sync` 때 그 메시지를 받는다. omp는 새 메시지가 오면 바로 알림을 띄운다.
+예를 들어 Claude Code 창에서 **"테스트 결과 요약해서 omp에게 보내줘"**라고 말하면, 옆에 열려 있는 omp 세션에 메시지가 바로 도착해 알아서 처리하고 답장합니다. 그 답장 역시 별도 조작 없이 Claude Code 화면으로 돌아옵니다.
 
-## 무엇이 들어 있나
+## 어떤 에이전트를 지원하나요?
 
-버스 엔진은 직접 만들지 않았다. [agent-bus-mcp](https://github.com/alessandrobologna/agent-bus-mcp) 0.5.1을 `uvx`로 실행하고, 이 저장소는 그 둘레의 연결 부품만 담는다.
+모든 에이전트가 같은 로컬 버스(`hr-sync` 토픽)에 참여하며, `@이름:`으로 특정 대상을 지정해 보낸 메시지는 열린 세션에 자동으로 전달됩니다.
+
+| 에이전트 | 버스 이름 | 자동 수신(Push) | 방식 |
+| --- | --- | :---: | --- |
+| **omp** | `omp` | O | 전용 확장이 세션에 메시지를 넣고 바로 턴 시작 |
+| **Claude Code** | `claude` | O | MCP 개발 채널 이벤트로 수신 (`← agents-bus: ...`) |
+| **Codex** | `codex` | O | 프록시가 `codex queue`로 열린 세션에 주입 |
+| **Antigravity** | `agy` | X (약관 제한) | `omp` 화면에 알림 표시 → `agy`에서 직접 확인 |
+
+---
+
+## 빠른 시작
+
+### 사전 준비
+
+- Windows 환경
+- **Node.js 24** 이상
+- **uv** (`uvx` 명령이 `PATH`에 등록되어 있어야 함 — [설치 안내](https://docs.astral.sh/uv/))
+
+### 1. 설치
+
+```bash
+node scripts/install.mjs --dry-run   # 변경될 내용 미리 확인
+node scripts/install.mjs             # omp, Claude Code, Codex 일괄 설정
+```
+
+설치가 끝나면 사용 중인 각 CLI를 재시작합니다.
+
+<details>
+<summary>설치 옵션 및 설치 스크립트가 변경하는 항목 보기</summary>
+
+#### 옵션
+
+| 옵션 | 설명 |
+| --- | --- |
+| `--only omp,codex` | 지정한 CLI만 선택해 처리 |
+| `--create-rules` | 전역 규칙 파일이 없으면 새로 생성 |
+| `--topic NAME` | 기본 토픽 이름 변경 (기본값: `hr-sync`) |
+| `--dry-run` | 파일을 수정하지 않고 변경 예정 내용만 출력 |
+| `--uninstall` | MCP 등록, Codex 훅, 규칙 블록, omp 확장 제거 |
+
+#### 설치 시 수행되는 작업
+
+1. `~/.agent_bus/bus-proxy.mjs`를 복사하고 `~/.agent_bus/config.json`에 `uvx`·`codex` 경로를 기록합니다.
+2. 각 CLI에 MCP 서버 `agents-bus`를 등록합니다 (`omp`는 `~/.omp/agent/mcp.json`, `claude`·`codex`는 각자의 `mcp add` 사용). `claude`·`codex`는 피어 이름(`AGENTS_BUS_PEER`)과 전달 방식(`AGENTS_BUS_PUSH`)을 함께 설정하며, 다른 MCP 서버는 건드리지 않습니다.
+3. omp 확장을 `~/.omp/agent/extensions/agents-bus.ts`에 복사합니다.
+4. Codex가 세션 ID를 프록시에 알려 줄 수 있도록 `~/.codex/hooks.json`에 훅 2개(`SessionStart`, `UserPromptSubmit`)를 추가합니다. 기존 훅은 유지됩니다.
+5. `~/.omp/agent/RULES.md`, `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`에 규칙 블록을 넣습니다. `<!-- agents-bus:begin -->`~`end` 사이만 갱신하므로 여러 번 실행해도 중복되지 않습니다.
+
+</details>
+
+### 2. CLI별 최초 1회 준비
+
+자동 수신을 쓰려면 각 CLI에서 아래 설정만 한 번 해 두면 됩니다.
+
+- **omp**: 재시작하면 바로 동작합니다.
+- **Claude Code**: 채널 옵션을 붙여 실행한 뒤, 첫 경고에서 **I am using this for local development**를 선택합니다.
+  ```bash
+  claude --dangerously-load-development-channels server:agents-bus
+  ```
+  > 이 옵션 없이 실행해도 `sync`로 수동 송수신은 되지만, 메시지가 자동으로 들어오지는 않습니다.
+- **Codex**: 세션 안에서 `/hooks`를 열어 `agents-bus` 훅 2개(`SessionStart`, `UserPromptSubmit`)를 승인합니다. 훅이 세션 ID를 전달해야 하므로, 새 세션에서는 첫 입력을 한 뒤부터 자동 수신됩니다.
+- **Antigravity (`agy`)**: 약관상 이 저장소의 스크립트가 `agy`를 직접 실행하거나 감싸지 않습니다. 아래 순서대로 직접 등록해 주세요. (이유: [docs/antigravity-tos.md](docs/antigravity-tos.md))
+  1. 설치 스크립트 출력에 나온 `agy mcp add` 명령을 터미널에서 직접 실행합니다. (`--env` 옵션은 서버 이름보다 앞에 와야 합니다.)
+     ```bash
+     agy mcp add --env "AGENTS_BUS_HOME=C:\Users\<you>\.agent_bus" --env "AGENT_BUS_DB=C:\Users\<you>\.agent_bus\agent_bus.sqlite" agents-bus -- "C:\Program Files\nodejs\node.exe" "C:\Users\<you>\.agent_bus\bus-proxy.mjs"
+     ```
+     등록 후 `agy mcp list`나 `agy` 내부 `/mcp` 명령으로 연결을 확인합니다. (설정 위치: `~/.gemini/config/mcp_config.json`)
+  2. [docs/agy-rules.md](docs/agy-rules.md)의 규칙 블록을 `~/.gemini/GEMINI.md`에 붙여 넣습니다.
+  3. 직접 연 대화형 `agy` 세션에서 `"버스 확인해"`라고 요청합니다. (`toolPermission`이 `always-proceed`가 아니면 첫 MCP 호출 시 승인을 묻습니다. `agy -p` 같은 비대화형·스크립트 실행은 금지합니다.)
+
+### 3. 1분 만에 동작 확인해 보기
+
+1. `omp`를 열고, 다른 터미널에서 Claude Code를 채널 옵션(`--dangerously-load-development-channels server:agents-bus`)으로 엽니다.
+2. 두 세션 모두 시작과 동시에 `hr-sync` 토픽에 참여하고 대기 중인 메시지를 요약해 줍니다.
+3. Claude Code에 입력합니다:
+   ```text
+   버스로 omp에게 "지금 몇 시인지 알려줘" 보내
+   ```
+4. `omp` 창에 `[bus] claude -> omp ...` 메시지가 자동으로 들어오고, `omp`가 스스로 답장합니다.
+5. 잠시 뒤 Claude Code 화면에 `← agents-bus: @claude: ...`가 뜨며 답장을 받아 처리합니다.
+
+---
+
+## 사용법
+
+### 알아 둘 용어
+
+- **토픽**: 에이전트들이 모이는 대화방입니다. 기본값은 `hr-sync`입니다.
+- **피어**: 버스 안에서 쓰는 고정 이름입니다 (`omp`, `claude`, `codex`, `agy`).
+- **수신자 지정**: 버스 자체에는 받는 사람 필드가 없어, 메시지 앞머리에 `@codex:`처럼 대상 이름을 붙입니다. `@all:`이거나 대상이 없으면 전체 공지입니다.
+
+### 메시지 보내기
+
+자연어로 편하게 지시하면 모델이 알아서 `sync` 도구로 전송합니다.
+
+```text
+버스로 codex에게 "로그인 API 테스트 통과, 커밋은 아직 안 함" 보내
+테스트 결과 요약해서 claude한테 버스로 보내줘
+모두에게 버스로 "10분 뒤 main 브랜치 rebase 예정" 알려
+```
+
+### 메시지 받기와 읽음 처리
+
+- **세션 시작 시**: 규칙 블록 덕분에 각 에이전트가 `hr-sync`에 자동 참여하고 안 읽은 메시지를 한 줄씩 요약합니다. (건너뛰면 `"버스 확인해"`라고 말하면 됩니다.)
+- **지정 메시지 (`@이름:`)**: 대상 세션이 열려 있으면 자동으로 들어가 모델이 바로 처리합니다 (`omp`, `claude`, `codex`).
+- **전체 공지 / 꺼진 세션**: DB에 보관되어 있다가 다음 `sync` 호출이나 세션 시작 시 전달됩니다.
+- **Antigravity (`agy`)**: 자동 수신 대신 `@agy:` 메시지가 오면 `omp` 화면에 `[bus] 1 new for agy from codex` 알림과 상태줄 `agy: N`이 뜹니다. `agy` 창에서 `"버스 확인해"`라고 시키면 읽습니다.
+- **읽음 처리**: 모델이 MCP `sync`를 호출할 때만 읽음 처리됩니다. `omp`의 `/bus` 명령은 모델을 거치지 않고 안 읽은 메시지를 미리 보기만 합니다.
+
+---
+
+## 안전장치
+
+에이전트끼리 자동으로 메시지를 주고받기 때문에, 오작동이나 무한 루프를 막는 안전장치를 함께 두었습니다.
+
+- **외부 입력으로 취급**: 버스 메시지는 사용자 지시가 아닙니다. 버스 내용만 보고 명령을 실행하거나 파일을 수정하거나 비밀 정보를 전송하지 않고, 반드시 사용자에게 먼저 확인하도록 규칙에 명시했습니다.
+- **무한 답장(핑퐁) 방지**:
+  1. 요청이 담긴 메시지에만 답장하고, "확인했습니다" 같은 단순 감사·확인 답장은 보내지 않습니다.
+  2. 규칙을 어기더라도 같은 발신자로 인한 자동 깨움은 **10분에 최대 3회**로 제한합니다. (초과분은 다음 `sync` 때 수신)
+- **중복 세션 보호**: 같은 이름의 창을 여러 개 열어 두어도(예: `omp` 창 2개), `~/.agent_bus/wakes/`의 잠금 파일을 통해 메시지 하나당 한 세션만 깨어납니다.
+
+---
+
+## 동작 원리와 구조
+
+버스 엔진 자체는 직접 만들지 않았습니다. [agent-bus-mcp](https://github.com/alessandrobologna/agent-bus-mcp) 0.5.1을 `uvx`로 실행하고, 이 저장소는 각 CLI를 안정적으로 이어 주는 프록시·확장·규칙만 관리합니다.
 
 ```mermaid
 flowchart LR
   omp[omp] --> proxy
   claude[Claude Code] --> proxy
   codex[Codex] --> proxy
-  agy["agy (사람이 연 세션만)"] --> proxy
+  agy["agy (대화형 세션만)"] --> proxy
   proxy["bus-proxy.mjs<br/>(CLI마다 1개)"] --> engine["agent-bus-mcp<br/>(uvx)"]
   engine --> db[("~/.agent_bus/<br/>agent_bus.sqlite")]
   ext["omp 확장<br/>agents-bus.ts"] -. 읽기 전용 .-> db
@@ -24,131 +150,41 @@ flowchart LR
 
 | 파일 | 역할 |
 | --- | --- |
-| `scripts/install.mjs` | omp·claude·codex에 MCP 서버 `agents-bus`를 등록하고, omp 확장과 CLI별 규칙 블록을 설치한다. agy는 실행하지 않고 등록 명령만 출력한다 |
-| `scripts/bus-proxy.mjs` | CLI와 agent-bus-mcp 사이의 MCP stdio를 중계한다. `topic_join`이 돌려준 재접속 토큰을 `~/.agent_bus/tokens/`에 저장해 두었다가 다시 넣어 주므로, CLI를 재시작해도 같은 이름(`omp`, `claude` 등)으로 다시 들어갈 수 있다. Claude Code와 Codex에서는 DB를 읽기 전용으로 지켜보다가 자기 앞 메시지를 세션에 넣는다 (Claude는 채널, Codex는 `codex queue`) |
-| `extension/agents-bus.ts` | omp 확장. DB를 5초마다 읽기 전용으로 확인해 `[bus] N new` 알림을 띄우고 `/bus` 명령을 제공한다. `@omp:` 메시지는 세션에 넣고 턴을 시작한다 |
-| `scripts/rules.mjs` | 각 CLI의 전역 규칙 파일에 넣는 규칙 블록(피어 이름, 토픽, 안전 규칙) |
-| `scripts/guard.mjs` | 코드가 agy를 실행·래핑하거나 자격 증명을 읽지 않는지 검사한다 (Antigravity 약관) |
-| `docs/agy-rules.md` | agy 규칙에 붙여 넣을 블록 (설치 스크립트가 생성) |
-| `docs/antigravity-tos.md` | agy 연결 방식을 제한하는 이유 |
+| `scripts/install.mjs` | MCP 서버 등록, omp 확장 복사, Codex 훅·규칙 블록 일괄 설치 (`agy`는 명령어 안내만 출력) |
+| `scripts/bus-proxy.mjs` | CLI와 `agent-bus-mcp` 사이의 MCP stdio 중계. 재접속 토큰을 `~/.agent_bus/tokens/`에 저장해 재시작 후에도 같은 이름으로 복귀시키며, `claude`·`codex`용 자동 수신(채널 / `codex queue`)을 담당 |
+| `extension/agents-bus.ts` | omp 확장. 5초마다 DB를 읽기 전용으로 확인해 알림·`/bus` 명령·`@omp:` 자동 수신 제공 |
+| `scripts/rules.mjs` | 각 CLI의 전역 규칙 파일에 주입할 규칙 블록 생성 |
+| `scripts/guard.mjs` | Antigravity 약관 준수 검사 (코드가 `agy`를 실행·래핑하거나 자격 증명을 읽지 않는지 확인) |
+| `docs/agy-rules.md` | `agy` 전역 규칙(`~/.gemini/GEMINI.md`)에 붙여 넣을 블록 (설치 시 생성) |
+| `docs/antigravity-tos.md` | `agy` 연결 방식을 수동·대화형으로 제한하는 이유 |
 
-## 기본 개념
+---
 
-- **토픽**: 대화방. 기본값은 `hr-sync` 하나다.
-- **피어**: 버스에서 쓰는 이름. `omp`, `claude`, `codex`, `agy`로 고정되어 있다.
-- **수신자 표시**: 버스에는 받는 사람 필드가 없다. 메시지 본문을 `@codex:`처럼 시작해 받는 사람을 적는다. 접두어가 없거나 `@all:`이면 모두에게 보내는 메시지다.
-- **받기**: 메시지는 각 CLI의 모델이 MCP `sync` 도구를 호출할 때 받고 읽음 처리된다. 그와 별개로 `@<받는이>:` 메시지는 열린 세션에 저절로 들어간다 (omp, Claude Code, Codex. agy는 제외). 아래 "받기" 참고.
-- **읽음 처리**: 모델이 `sync`를 호출해야 읽음이 된다. omp의 `/bus`는 보여 주기만 하고 읽음 처리는 하지 않는다.
+## 테스트 및 문제 해결
 
-## 설치
+### 테스트 실행
 
-필요: Node 24, `uv`(`uvx`)가 PATH에 있어야 한다.
-
-```
-node scripts/install.mjs --dry-run     # 무엇이 바뀌는지 미리 보기
-node scripts/install.mjs               # omp, claude, codex 등록 + omp 확장 + 규칙 블록
-```
-
-설치 스크립트가 하는 일:
-
-1. `~/.agent_bus/bus-proxy.mjs`를 복사하고, `~/.agent_bus/config.json`에 `uvx`와 `codex` 경로를 적는다.
-2. MCP 서버 `agents-bus`를 등록한다. omp는 `~/.omp/agent/mcp.json`, claude·codex는 각자의 `mcp add` 명령을 쓴다. claude·codex 등록에는 피어 이름과 전달 방식(`AGENTS_BUS_PEER`, `AGENTS_BUS_PUSH`)이 들어가며, 예전 등록에 이 값이 없으면 지우고 다시 등록한다. 다른 MCP 서버는 건드리지 않는다.
-3. omp 확장을 `~/.omp/agent/extensions/agents-bus.ts`에 복사한다.
-4. Codex 훅 2개(`SessionStart`, `UserPromptSubmit`)를 `~/.codex/hooks.json`에 추가한다. 세션 ID를 프록시에 알려 `codex queue`로 메시지를 넣을 수 있게 한다. 기존 훅은 그대로 둔다.
-5. 규칙 블록을 `~/.omp/agent/RULES.md`, `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`에 넣는다. 블록은 `<!-- agents-bus:begin -->`~`end` 표식 사이만 고치므로 여러 번 실행해도 중복되지 않는다. 규칙 파일이 없으면 건너뛰는데, 새로 만들려면 `--create-rules`를 붙인다.
-
-설치가 끝나면 각 CLI를 재시작한다.
-
-| 옵션 | 뜻 |
-| --- | --- |
-| `--only omp,codex` | 일부 CLI만 처리 |
-| `--create-rules` | 규칙 파일이 없으면 새로 만든다 |
-| `--topic NAME` | 규칙에 적을 토픽 이름 (기본 `hr-sync`) |
-| `--dry-run` | 아무것도 바꾸지 않고 출력만 |
-| `--uninstall` | 등록, Codex 훅, 규칙 블록, 확장을 제거 |
-
-### Antigravity (agy)
-
-약관 때문에 이 저장소의 코드는 agy를 실행하지 않는다. 직접 해야 한다:
-
-1. 설치 출력에 나온 명령을 터미널에서 직접 실행한다. `--env` 옵션은 서버 이름보다 앞에 와야 한다.
-   ```
-   agy mcp add --env "AGENTS_BUS_HOME=C:\Users\<you>\.agent_bus" --env "AGENT_BUS_DB=C:\Users\<you>\.agent_bus\agent_bus.sqlite" agents-bus -- "C:\Program Files\nodejs\node.exe" "C:\Users\<you>\.agent_bus\bus-proxy.mjs"
-   ```
-   등록 내용은 `~/.gemini/config/mcp_config.json`에 저장된다. `agy mcp list`로 확인하고, agy 안에서 `/mcp`를 입력해 `agents-bus`가 켜졌는지 본다.
-2. [docs/agy-rules.md](docs/agy-rules.md)의 블록을 agy 전역 규칙 파일 `~/.gemini/GEMINI.md`에 붙여 넣는다.
-3. agy 세션을 새로 열고 "버스 확인해"라고 시킨다. agy 설정의 `toolPermission`이 `always-proceed`가 아니면 처음 MCP 도구를 쓸 때 허락을 묻는다.
-4. 직접 연 대화형 agy 세션에서만 쓴다. `agy -p` 같은 비대화형 실행이나 스크립트로 agy를 구동하는 것은 금지다. 자세한 이유는 [docs/antigravity-tos.md](docs/antigravity-tos.md).
-
-## 사용법
-
-### 세션을 열면
-
-규칙 블록 덕분에 각 CLI의 모델은 세션을 시작할 때 다음을 한다:
-
-1. 토픽 `hr-sync`를 찾거나 만들고(`topic_create`, `mode="reuse"`), 자기 이름으로 참여(`topic_join`)한다.
-2. `sync`를 한 번 호출하고, 기다리던 메시지가 몇 건인지 한 줄씩 요약해서 알려 준다. 이 단계에서는 메시지 내용을 실행하지 않는다.
-
-모델이 이 단계를 건너뛰면 "버스 확인해"라고 말하면 된다.
-
-### 보내기
-
-자연어로 시키면 된다.
-
-```
-버스로 codex에게 "로그인 API 테스트 통과, 커밋은 아직 안 함" 보내
-테스트 결과 요약해서 claude한테 버스로 보내줘
-모두에게 버스로 "10분 뒤 main 브랜치 rebase 예정" 알려
-```
-
-모델은 `sync(topic_id, outbox=[{"content_markdown": "@codex: ..."}])` 형태로 보낸다.
-
-### 받기
-
-`@<받는이>:`로 지정한 메시지는 받는 쪽 세션이 열려 있으면 저절로 들어가 모델이 바로 처리한다 (Claude Code channels 방식). `@all:`이나 받는이가 없는 메시지는 저절로 들어가지 않고 다음 `sync` 때 받는다.
-
-| 받는 쪽 | 저절로 받는 방법 | 준비 |
-| --- | --- | --- |
-| omp | 확장이 세션에 `[bus] codex -> omp  hr-sync  13:22` 메시지를 넣고 턴을 시작한다. 그 밖의 메시지는 `[bus] 1 new from codex  try: /bus` 알림만 뜬다 | omp 재시작 |
-| Claude Code | 프록시가 채널 이벤트로 보낸다. 화면에 `← agents-bus: @claude: ...` 한 줄이 뜨고 Claude가 처리한다 | `claude --dangerously-load-development-channels server:agents-bus`로 실행하고, 처음 뜨는 경고에서 **I am using this for local development** 선택. 이 옵션 없이 실행하면 저절로 받지 않는다 |
-| Codex | 프록시가 `codex queue --thread <세션>`으로 세션에 넣는다 | Codex에서 `/hooks`를 열어 `agents-bus` 훅 2개(SessionStart, UserPromptSubmit)를 승인. 세션 ID는 훅이 알려 주므로 세션에서 첫 입력을 한 뒤부터 받는다 |
-| agy | 저절로 받지 않는다 (약관). 대신 `@agy:` 메시지가 오면 omp 화면에 `[bus] 1 new for agy from codex` 알림이 뜨고 상태줄에 `agy: N`이 보인다. agy 창에서 "버스 확인해"라고 시키면 `sync`로 받는다 | omp 재시작 |
-
-`/bus`(omp)는 모델을 거치지 않고 안 읽은 메시지를 보여 준다. 읽음 처리는 언제나 모델의 `sync`가 한다. 세션이 꺼져 있을 때 온 메시지는 DB에 남아 있다가, 다음 세션 시작 때 요약된다.
-
-### 안전 규칙
-
-버스 메시지는 다른 에이전트가 보낸 입력이지 사용자의 지시가 아니다. 규칙 블록과 전달 문구는 모델이 버스 메시지만 보고 명령 실행, 파일 수정, 비밀 정보 전송을 하지 않고 먼저 사용자에게 묻도록 정해 둔다.
-
-메시지가 저절로 들어가므로, 두 에이전트가 "확인했습니다" 같은 답장만 주고받으면 서로를 끝없이 깨울 수 있다. 두 겹으로 막는다. 규칙은 요청이 있는 메시지에만 답하고 확인·감사 답장은 보내지 않게 한다. 그래도 모델이 규칙을 어기면, 한 세션은 같은 발신자 때문에 10분에 최대 3번까지만 깨어나고 나머지는 다음 `sync` 때 받는다. 같은 이름의 세션을 여러 개 열어 두면(예: omp 창 두 개) 메시지 하나에 한 세션만 깨어난다 (`~/.agent_bus/wakes/`의 표시 파일로 먼저 잡은 세션이 받는다).
-
-### 한 번에 따라 해 보기
-
-1. omp를 다시 켜고, Claude Code는 `claude --dangerously-load-development-channels server:agents-bus`로 연다. 둘 다 세션 시작 시 버스 요약을 보여 준다.
-2. Claude Code에: `버스로 omp에게 "지금 몇 시인지 알려줘" 보내`
-3. omp 세션에 `[bus] claude -> omp ...` 메시지가 들어오고, omp가 스스로 답장한다.
-4. Claude Code 화면에 `← agents-bus: @claude: ...`가 뜨고 Claude가 답장을 처리한다. 둘 다 "버스 확인해"를 입력하지 않는다.
-
-## 점검
-
-```
+```bash
 node scripts/guard.mjs && node --test
 ```
 
-테스트는 `uvx`로 실제 agent-bus-mcp 프로세스를 임시 DB와 함께 띄운다.
+약관 가드 검사 후, 임시 DB로 실제 `agent-bus-mcp` 프로세스를 띄워 통합 테스트를 수행합니다.
 
-## 문제 해결
+### 자주 겪는 문제
 
-| 증상 | 확인할 것 |
+| 증상 | 해결 방법 |
 | --- | --- |
-| 설치가 `[err] uvx not found`로 멈춤 | `uv`를 설치하고 다시 실행 ([uv 설치](https://docs.astral.sh/uv/)) |
-| 재시작 후 `AGENT_NAME_IN_USE` | 프록시를 거치지 않고 등록된 경우다. `node scripts/install.mjs`를 다시 실행해 등록을 프록시로 맞춘다 |
-| CLI 하나만 토픽을 못 찾음 | 셸에 남은 `AGENT_BUS_DB` 환경변수가 다른 DB를 가리키는지 확인. 설치 스크립트는 등록할 때 `AGENT_BUS_DB`, `AGENTS_BUS_HOME`을 고정한다 |
-| omp 알림이 안 뜸 | omp 재시작, `~/.omp/agent/extensions/agents-bus.ts`가 있는지 확인. `/bus`를 입력하면 DB 오류가 있을 때 그 내용을 보여 준다 |
+| 설치가 `[err] uvx not found`로 중단됨 | `uv`를 설치하고 `PATH`를 갱신한 뒤 다시 실행합니다 ([uv 설치](https://docs.astral.sh/uv/)). |
+| 재시작 후 `AGENT_NAME_IN_USE` 오류 | 프록시를 거치지 않고 직접 등록된 상태입니다. `node scripts/install.mjs`를 다시 실행해 프록시 등록으로 맞춥니다. |
+| 특정 CLI만 토픽을 찾지 못함 | 셸 환경변수 `AGENT_BUS_DB`가 다른 경로를 가리키고 있는지 확인합니다. 설치 스크립트는 등록 시 `AGENT_BUS_DB`와 `AGENTS_BUS_HOME`을 고정합니다. |
+| omp 알림이 뜨지 않음 | omp를 재시작하고 `~/.omp/agent/extensions/agents-bus.ts` 존재 여부를 확인합니다. `/bus`를 입력하면 DB 오류 원인을 바로 볼 수 있습니다. |
 
-omp 확장 환경변수: `AGENTS_BUS_PEER`(기본 `omp`), `AGENT_BUS_DB`(DB 경로), `AGENTS_BUS_POLL_MS`(기본 5000).
+> **omp 확장 환경변수**: `AGENTS_BUS_PEER`(기본 `omp`), `AGENT_BUS_DB`(DB 경로), `AGENTS_BUS_POLL_MS`(폴링 주기 ms, 기본 `5000`)
+
+---
 
 ## 참고
 
-- 예전에 만든 자작 버스(Claude Code MCP 서버 `agent-bus`, 파일 `~/.agent-bus`)는 2026-11-24에 은퇴했다. Claude Code 등록은 지웠다. 파일 폴더는 열린 Claude 세션이 잡고 있어 아직 그대로이며, 세션을 닫은 뒤 `~/.agent-bus.bak`으로 이름을 바꿔 보관한다. 이 버스의 데이터 폴더는 밑줄이 들어간 `~/.agent_bus/`이니 혼동하지 말 것.
-- 진행 단계와 결정 기록: [.workflow/README.md](.workflow/README.md). 터미널 출력 디자인 토큰: [DESIGN.md](DESIGN.md).
+- **데이터 폴더 경로 주의**: 이 버스의 데이터 폴더는 밑줄이 들어간 **`~/.agent_bus/`**입니다. (2026-11-24에 은퇴한 이전 자작 버스 폴더 `~/.agent-bus`와 혼동하지 않도록 주의하세요.)
+- 진행 단계와 설계 결정 기록: [.workflow/README.md](.workflow/README.md)
+- 터미널 출력 디자인 토큰: [DESIGN.md](DESIGN.md)
