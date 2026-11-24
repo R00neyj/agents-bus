@@ -1,0 +1,26 @@
+{
+  "checks": {
+    "test": {
+      "enabled": true,
+      "command": "node scripts/guard.mjs && node --test"
+    },
+    "build": {
+      "enabled": false,
+      "command": ""
+    },
+    "lint": {
+      "enabled": false,
+      "command": ""
+    },
+    "typecheck": {
+      "enabled": false,
+      "command": ""
+    }
+  },
+  "mode": "lite",
+  "run": "node scripts/install.mjs",
+  "deploy": {
+    "prerelease": "",
+    "release": ""
+  }
+}

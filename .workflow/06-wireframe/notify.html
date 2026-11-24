@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>omp 새 메시지 알림 (notify)</title>
+<link rel="stylesheet" href="wireframe.css">
+<link rel="stylesheet" href="term.css">
+</head>
+<body>
+<header class="wf-top">
+  <a href="index.html">← Screen list</a>
+  <h1>omp 새 메시지 알림 <small>notify</small></h1>
+  <p class="wf-note">Mid-fi · grayscale · real copy · DESIGN.md components (BusNotice, Hint). Related feature: <a href="../02-spec.md#f-03">F-03</a></p>
+</header>
+
+<div class="wf-states term-states">
+  <div>
+    <p class="wf-state-label">Default: 1건 (omp 대화 중 한 줄로 표시)</p>
+    <div class="term" data-component="BusNotice"><span class="dim">omp  ~/hr-sync  gpt-5</span>
+
+you&gt; 로그인 폼 검증 로직 정리해 줘
+omp&gt; 정리했습니다. 변경 파일은 3개입니다...
+
+<span class="tag">[bus]</span> 1 new from <span class="b">codex</span>  <span class="dim">try: /bus</span>
+
+you&gt; <span class="dim">_</span></div>
+  </div>
+  <div>
+    <p class="wf-state-label">여러 건 / 여러 발신자</p>
+    <div class="term" data-component="BusNotice"><span class="tag">[bus]</span> 3 new from <span class="b">codex</span>, <span class="b">claude</span>  <span class="dim">try: /bus</span></div>
+  </div>
+  <div>
+    <p class="wf-state-label">Empty / DB 없음: 아무것도 표시하지 않음</p>
+    <div class="term" data-component="BusNotice"><span class="dim">omp  ~/hr-sync  gpt-5
+
+you&gt; _</span></div>
+  </div>
+</div>
+
+<aside class="wf-annot">
+  <h2>Annotations</h2>
+  <ol>
+    <li>다른 CLI가 보낸 메시지가 10초 안에 한 줄로 뜬다. 본문은 싣지 않는다.</li>
+    <li>사용자가 <code>/bus</code>를 입력하면 <a href="inbox.html">inbox</a>로 이동한다.</li>
+    <li>DB를 읽기만 하며, 알림 때문에 모델 입력이 바뀌지 않는다.</li>
+  </ol>
+</aside>
+</body>
+</html>

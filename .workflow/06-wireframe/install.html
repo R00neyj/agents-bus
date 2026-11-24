@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>설치 출력 (install)</title>
+<link rel="stylesheet" href="wireframe.css">
+<link rel="stylesheet" href="term.css">
+</head>
+<body>
+<header class="wf-top">
+  <a href="index.html">← Screen list</a>
+  <h1>설치 출력 <small>install</small></h1>
+  <p class="wf-note">Mid-fi · grayscale · real copy · DESIGN.md components (StatusLine, Hint). Related feature: <a href="../02-spec.md#f-01">F-01</a>, <a href="../02-spec.md#f-06">F-06</a></p>
+</header>
+
+<div class="wf-states term-states">
+  <div>
+    <p class="wf-state-label">Default: 4개 CLI 중 일부는 이미 등록, agy는 직접 실행</p>
+    <div class="term" data-component="StatusLine"><span class="cmd">&gt; node scripts/install.mjs</span>
+agents-bus install  (agent-bus-mcp 0.5.1, peers: omp claude codex agy)
+
+<span class="ok">[ok]</span>   omp     registered   ~/.omp/agent/mcp.json  (notion kept)
+<span class="ok">[ok]</span>   claude  registered   user scope
+<span class="skip">[skip]</span> codex   already registered
+<span class="skip">[skip]</span> agy     run it yourself in a terminal:
+          agy mcp add agent-bus -- uvx --from agent-bus-mcp==0.5.1 agent-bus
+
+<span class="ok">[ok]</span>   rules   3 files updated (omp, claude, codex); agy: paste docs/agy-rules.md into your session
+<span class="ok">[ok]</span>   guard   no agy spawn paths found
+
+<span class="dim">try: restart omp, then /bus</span></div>
+  </div>
+  <div>
+    <p class="wf-state-label">Error: uvx 없음</p>
+    <div class="term" data-component="StatusLine"><span class="cmd">&gt; node scripts/install.mjs</span>
+agents-bus install  (agent-bus-mcp 0.5.1)
+
+<span class="err">[err]</span>  uvx not found on PATH. Nothing was changed.
+<span class="dim">try: install uv (https://docs.astral.sh/uv/), then run this again</span></div>
+  </div>
+  <div>
+    <p class="wf-state-label">Re-run: 전부 등록됨(멱등)</p>
+    <div class="term" data-component="StatusLine"><span class="cmd">&gt; node scripts/install.mjs</span>
+agents-bus install  (agent-bus-mcp 0.5.1)
+
+<span class="skip">[skip]</span> omp     already registered
+<span class="skip">[skip]</span> claude  already registered
+<span class="skip">[skip]</span> codex   already registered
+<span class="skip">[skip]</span> agy     run it yourself in a terminal (see above)
+<span class="skip">[skip]</span> rules   up to date
+
+<span class="dim">nothing to do</span></div>
+  </div>
+</div>
+
+<aside class="wf-annot">
+  <h2>Annotations</h2>
+  <ol>
+    <li>사용자가 한 줄을 실행하고 각 CLI별 결과를 본다. 설정 파일은 표식 구간만 건드린다.</li>
+    <li>agy는 스크립트가 실행하지 않는다. 등록 명령만 출력해 사람이 직접 실행한다 (약관 가드).</li>
+    <li>다음 화면: <a href="notify.html">notify</a></li>
+  </ol>
+</aside>
+</body>
+</html>

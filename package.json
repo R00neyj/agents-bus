@@ -1,0 +1,12 @@
+{
+  "name": "agents-bus",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local message bus for omp, Claude Code, Codex and Antigravity on one PC (agent-bus-mcp + omp notifier)",
+  "scripts": {
+    "install-bus": "node scripts/install.mjs",
+    "guard": "node scripts/guard.mjs",
+    "test": "node --test"
+  }
+}

@@ -1,0 +1,12 @@
+/* Terminal screens. Values mirror DESIGN.md: monospace, grayscale, 2-space indent, blank line between messages, 100 columns max. */
+:root { --term-w: 100ch; --term-font: ui-monospace, Consolas, "Courier New", monospace; }
+.term { width: min(var(--term-w), 100%); background: #2b2b2b; color: #e8e8e8; font: 14px/1.5 var(--term-font); padding: 16px 20px; border: 1px solid #bdbdbd; margin: 0 auto; white-space: pre-wrap; }
+.term .cmd { color: #bdbdbd; }
+.term .dim { color: #9a9a9a; }
+.term .b { font-weight: 700; color: #fff; }
+.term .tag { font-weight: 700; color: #fff; text-decoration: underline; } /* primary color placeholder: cyan in the real UI */
+.term .ok, .term .skip, .term .err { font-weight: 700; }
+.term .err { color: #fff; background: #5a5a5a; }
+.term .ind { padding-left: 2ch; display: block; }
+.wf-states.term-states { flex-direction: column; align-items: center; }
+.wf-states.term-states > div { width: min(var(--term-w), 100%); }
