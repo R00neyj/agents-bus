@@ -55,9 +55,11 @@ Add one line each time a stage ends or the direction changes. Link the supportin
 | 2026-11-24 | 10 Prototype | omp↔agy 왕복 확인: 사람이 `agy mcp add --env ...`로 등록, agy 참여(12:29) 후 omp 핑(seq 4)에 agy가 `@omp: pong`(seq 5, reply_to 지정)으로 답함. agy 메시지에 omp 알림이 뜬 것을 사용자가 화면에서 확인 | [10-prototype.md](10-prototype.md#implementation-scope) |
 | 2026-11-24 | 10 Prototype | F-08 추가: `@<peer>:` 메시지를 열린 세션에 자동 전달(Claude channels 방식). omp는 확장이 턴 시작, Claude는 프록시가 채널 이벤트(`--dangerously-load-development-channels server:agents-bus` 필요), Codex는 프록시가 `codex queue`(세션 ID는 Codex MCP 도구 훅). agy는 약관으로 제외. F-03의 "본문을 모델에 넣지 않음" 원칙은 직접 메시지에 한해 바꿈. 서로 깨우는 무한 답장은 규칙으로 막음 | [02-spec.md F-08](02-spec.md#f-08) |
 | 2026-11-24 | 10 Prototype | agy 확인 완료: `@agy:` 메시지에 omp 화면 알림, agy 새 세션 첫 입력에 시키지 않아도 `sync`·요약, 요청 없는 메시지에 답장 안 함, agy 답장이 omp 세션에 저절로 들어가 턴 시작. Codex CLI 자동 전달(`codex queue`) 실제 확인은 보류: 사용자가 Codex 모델을 omp에서 쓸 수 있어 급하지 않음(agy는 omp에서 쓰면 약관 위반이라 별도 CLI가 필요). 코드와 훅은 남겨 둠 | [10-prototype.md](10-prototype.md#implementation-scope) |
+| 2026-11-24 | 10 Prototype | agy 자동 참여 장치(`PreInvocation` 훅으로 새 메시지 알림, `schedule`, `Stop` 훅 대기)는 2026-12-02 이후로 보류. 구독 로그인에서는 다른 에이전트·자동 루프·대기열이 agy를 움직이는 것이 개인 용도라도 금지(Google 답변 2026-11-12). Google이 12월 2일 "첫 단계"를 예고해 정책이 바뀔 수 있음. 그때까지 agy는 사람이 "버스 확인해"로 받음 | [antigravity-cli#1493](https://github.com/google-antigravity/antigravity-cli/issues/1493), [Logan Kilpatrick 2026-11-20](https://twitter.com/OfficialLoganK/status/2123657759896007035) |
 
 ## Open questions
 
 Once answered, move to the decision log and delete here.
 
 - 세션 시작 규칙(참여·sync 요약)을 실제 claude/codex/omp 세션이 따르는지 사용성 테스트에서 확인 ([02-spec.md F-06](02-spec.md#f-06))
+- 2026-12-02 Google 발표 확인 후 agy 자동 참여 방식 결정: 구독을 다른 도구에서 허용하면 omp에서 Gemini 사용(agy 전용 장치 불필요), 아니면 `PreInvocation` 훅(메시지당 한 번만 알림, 사람 입력 필요). `schedule`·`Stop` 훅 대기는 구독 로그인에서 쓰지 않음
